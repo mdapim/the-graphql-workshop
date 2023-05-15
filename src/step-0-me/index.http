@@ -1,0 +1,5 @@
+### get Add
+POST http://localhost:3000/graphql HTTP/1.1
+Content-Type: 'application/json'
+{"query":"{ add(x: 5, y:3) }"}
+
