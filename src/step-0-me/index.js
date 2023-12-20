@@ -1,6 +1,6 @@
 import Fastify from 'fastify'
 import mercurius from 'mercurius'
-import { schema, loaders } from './graphql/graphql.js'
+import { schema, loaders, context } from './graphql/graphql.js'
 
 // const schema = `
 // type Query{
@@ -21,12 +21,13 @@ function buildServer() {
       }
     }
   })
+
   fastify.log.info('Fastify is starting up!')
 
   fastify.register(import('@fastify/postgres'), {
     connectionString: 'postgres://postgres:postgres@0.0.0.0:5433/postgres'
   })
-  fastify.register(mercurius, { schema, loaders, graphiql: true })
+  fastify.register(mercurius, { schema, loaders, context, graphiql: true })
   return fastify
 }
 
