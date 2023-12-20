@@ -13,7 +13,7 @@ lineNumbers: false
 
 <div class="copyright">
 
-© Copyright 2022 NearForm Ltd
+<Copyright />
 
 </div>
 
@@ -456,6 +456,8 @@ export async function ownersByPetNames(db, petNames) {
       INNER JOIN pets
         ON pets.owner = owners.id
         AND pets.name = ANY(${petNames})
+      ORDER BY
+        ARRAY_POSITION((${petNames}), pets.name)`
     `
   )
 
@@ -664,6 +666,8 @@ onResolution called
 
 <div class="dense">
 
+# Step 7: Error handling 💻
+
 - The query should return something similar to:
 
 ```json
@@ -674,12 +678,7 @@ onResolution called
   "errors": [
     {
       "message": "Invalid User ID",
-      "locations": [
-        {
-          "line": 2,
-          "column": 3
-        }
-      ],
+      "locations": [{ "line": 2, "column": 3 }],
       "path": ["findUser"],
       "extensions": {
         "code": "USER_ID_INVALID",
@@ -735,6 +734,15 @@ gateway.register(mercuriusGateway, {...});
 
 - Service 1 has a `User` type and a `me` query which returns the user
 - Service 2 has a `Post` type and extends `User` with a `posts` array which are the posts of that user
+
+</div>
+
+---
+
+<div class="dense">
+
+# Step 8: Federation 💻
+
 - Use the import below for registering the service with federation enabled:
 
 ```js
@@ -744,13 +752,6 @@ service.register(mercuriusFederationPlugin, {...}
 ```
 
 - Keep an in-memory array of users of the type `User` and posts of type `Post`
-
-</div>
-
----
-
-<div class="dense">
-
 - The query should return something similar to:
 
 ```json
@@ -759,16 +760,8 @@ service.register(mercuriusFederationPlugin, {...}
     "me": {
       "name": "John",
       "posts": [
-        {
-          "id": "p1",
-          "title": "Post 1",
-          "content": "Content 1"
-        },
-        {
-          "id": "p3",
-          "title": "Post 3",
-          "content": "Content 3"
-        }
+        { "id": "p1", "title": "Post 1", "content": "Content 1" },
+        { "id": "p3", "title": "Post 3", "content": "Content 3" }
       ]
     }
   }
@@ -780,8 +773,6 @@ service.register(mercuriusFederationPlugin, {...}
 ---
 
 # Step 8: Solution / 1
-
-<div class="two-columns gap-5">
 
 ```js
 // server.js
@@ -802,6 +793,10 @@ await gateway.listen({ port: 4000 })
 ...
 ```
 
+---
+
+# Step 8: Solution / 2
+
 ```js
 // index.js
 import Fastify from 'fastify'
@@ -809,11 +804,7 @@ import mercuriusGateway from '@mercuriusjs/gateway'
 
 export default function buildGateway() {
   const gateway = Fastify({
-    logger: {
-      transport: {
-        target: 'pino-pretty'
-      }
-    }
+    logger: { transport: { target: 'pino-pretty' } }
   })
 
   gateway.register(mercuriusGateway, {
@@ -821,14 +812,8 @@ export default function buildGateway() {
     jit: 1,
     gateway: {
       services: [
-        {
-          name: 'user',
-          url: 'http://localhost:4001/graphql'
-        },
-        {
-          name: 'post',
-          url: 'http://localhost:4002/graphql'
-        }
+        { name: 'user', url: 'http://localhost:4001/graphql' },
+        { name: 'post', url: 'http://localhost:4002/graphql' }
       ]
     }
   })
@@ -837,11 +822,9 @@ export default function buildGateway() {
 }
 ```
 
-</div>
-
 ---
 
-# Step 8: Solution / 2
+# Step 8: Solution / 3
 
 ```js
 // services/service.js
@@ -1029,21 +1012,249 @@ curl --request POST \
 {
   "data": {
     "getNoviceUsers": [
-      {
-        "id": 1,
-        "name": "John Doe",
-        "age": 32,
-        "level": "novice"
-      }
+      { "id": 1, "name": "John Doe", "age": 32, "level": "novice" }
     ],
     "getAdvancedUsers": [
-      {
-        "id": 2,
-        "name": "Jane Doe",
-        "age": 28,
-        "level": "advanced"
-      }
+      { "id": 2, "name": "Jane Doe", "age": 28, "level": "advanced" }
     ]
+  }
+}
+```
+
+</div>
+
+---
+
+<div class="dense">
+
+# Step 11: Authorization
+
+In RESTful APIs, a common use case is to restrict access to certain endpoints unless the user has permission to access them. Likewise in GraphQL, you can restrict access to certain fields unless the user has permission to access them.
+
+In this step, we will carry on from Step 8 (Federation) and modify the `me` query so that it only returns the current user and their posts, and no one else's.
+
+- In the service containing the `me` query, update the schema to define a new directive
+- Define a `role` argument for the directive that can be either `VERIFIED` or `ADMIN`
+- Annotate the `me` query with the new directive and pass in an argument of `role: VERIFIED`
+- Annotate the `author` field with the new directive and pass in an argument of `role: ADMIN`
+</div>
+
+---
+
+<div class="dense">
+
+# Step 11: Authorization
+
+- Install the `mercurius-auth` package and register it with the gateway
+- Specify the following properties in the options object for the plugin:
+  - `authDirective` - the name of the directive you just defined
+  - `authContext` - logic to extract the user's role. For simplicity's sake, we will extract the user's role from the `X-Role` request header. In a real-world application, you may pass a JSON Web Token (JWT) via the headers, verify and decode it to extract the user's ID, role(s), and permission(s).
+  - `applyPolicy` - logic that determines, given the user's role, whether the server should allow the client to access this field or object?
+
+</div>
+
+---
+
+# Step 11: Solution / 1
+
+<div class="middle-flex">
+
+```js {1,4-11,14}
+// services/service1.js
+const service1 = {
+  schema: `
+  enum Role {
+    ADMIN
+    VERIFIED
+  }
+
+  directive @auth(
+    role: Role
+  ) on OBJECT | FIELD_DEFINITION
+
+  extend type Query {
+    me: User @auth(role: VERIFIED)
+  }
+  
+  type User @key(fields: "id") {
+    id: ID!
+    name: String!
+  }
+  `,
+  ...
+}
+```
+
+</div>
+
+
+---
+
+# Step 11: Solution / 2
+
+<div class="middle-flex">
+
+```js {1,4-9,15}
+// services/service2.js
+const service2 = {
+  schema: `
+  enum Role {
+    ADMIN
+    VERIFIED
+  }
+
+  directive @auth(role: Role) on OBJECT | FIELD_DEFINITION
+
+  type Post @key(fields: "id") {
+    id: ID!
+    title: String
+    content: String
+    author: User @auth(role: ADMIN)
+  }
+
+  type User @key(fields: "id") @extends {
+    id: ID! @external
+    name: String @external
+    posts: [Post]
+  }`,
+  ...
+}
+```
+
+</div>
+
+---
+
+# Step 11: Solution / 3
+
+<div class="middle-flex">
+
+```js
+// index.js
+import mercuriusAuth from 'mercurius-auth';
+...
+gateway.register(mercuriusAuth, {
+  authContext (context) {
+    return {
+      role: context.reply.request.headers['x-role']
+    }
+  },
+  async applyPolicy (authDirectiveAST, parent, args, context, info) {
+    const directiveRole = authDirectiveAST.arguments
+      .find(arg => arg.name.value === 'role')
+      .value.value;
+
+    return context.auth.role === directiveRole || context.auth.role === 'ADMIN';
+  },
+  authDirective: 'auth'
+})
+
+```
+
+</div>
+
+---
+
+<div class="middle-flex">
+
+# Step 11: Trying it out / No header
+
+### In terminal
+
+```bash
+curl --request POST \
+  --url http://localhost:4000/graphql \
+  --header 'Content-Type: application/json' \
+  --data '{"query":"{ me { name posts { title author { name }}}}"}'
+```
+
+```json
+{
+  "data": { "me": null },
+  "errors": [{
+    "message": "Failed auth policy check on me",
+    "locations": [{
+      "line": 1,
+      "column": 3
+    }],
+    "path": [ "me" ]
+  }]
+}
+```
+
+</div>
+
+---
+
+<div class="middle-flex">
+
+# Step 11: Trying it out / VERIFIED
+
+### In terminal
+
+```bash
+curl --request POST \
+  --url http://localhost:4000/graphql \
+  --header 'Content-Type: application/json' \
+  --header 'X-Role: VERIFIED' \
+  --data '{"query":"{ me { name posts { title author { name }}}}"}'
+```
+
+```json
+{
+  "data": {
+    "me": {
+      "name": "John",
+      "posts": [{
+        "title": "Post 1",
+        "author": null
+      }, {
+        "title": "Post 3",
+        "author": null
+      }]
+    }
+  },
+  "errors": [{
+      "message": "Failed auth policy check on author",
+      "locations": [ ... ],
+      "path": [ ... ]
+    },
+    ...
+  ]
+}
+```
+
+</div>
+
+---
+
+<div class="middle-flex">
+
+# Step 11: Trying it out / ADMIN
+
+### In terminal
+
+```bash
+curl --request POST \
+  --url http://localhost:4000/graphql \
+  --header 'Content-Type: application/json' \
+  --header 'X-Role: ADMIN' \
+  --data '{"query":"{ me { name posts { title author { name }}}}"}'
+```
+
+```json
+{
+  "data": {
+    "me": {
+      "name": "John",
+      "posts": [{
+        "title": "Post 1",
+        "author": {  "name": "John" }
+      }, {
+        "title": "Post 3",
+        "author": { "name": "John" }
+      }]
+    }
   }
 }
 ```
